@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Catan Board Generator</title>
+<style>
+  :root {
+    --bg: #142218;
+    --bg-deep: #0d1811;
+    --wood: #2b1d12;
+    --wood-light: #3d2a19;
+    --board: #ecdfc2;
+    --board-edge: #c9b384;
+    --ink: #2c2115;
+    --ink-soft: #5a4a34;
+    --gold: #d3a84c;
+    --gold-dark: #a97e2f;
+
+    --sheep: #6fae42;
+    --wood-tile: #1f3d2e;
+    --wheat: #e6c332;
+    --brick: #bd5233;
+    --stone: #8d8f8a;
+    --desert: #e0b571;
+    --ocean: #1c3a52;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    min-height: 100vh;
+    background:
+      radial-gradient(ellipse at 50% -10%, #1c3324 0%, var(--bg) 55%, var(--bg-deep) 100%);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    color: #ece3d1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 40px 16px 60px;
+  }
+
+  h1 {
+    font-family: Georgia, "Times New Roman", serif;
+    font-weight: 700;
+    font-size: clamp(28px, 4vw, 40px);
+    letter-spacing: 0.3px;
+    margin: 0 0 6px;
+    color: var(--gold);
+    text-align: center;
+  }
+
+  .subtitle {
+    color: #b9c4b6;
+    font-size: 15px;
+    margin: 0 0 32px;
+    text-align: center;
+    max-width: 480px;
+    line-height: 1.5;
+  }
+
+  .frame {
+    width: min(94vw, 1200px);
+    background: linear-gradient(160deg, var(--wood-light), var(--wood) 70%);
+    padding: 22px;
+    border-radius: 18px;
+    box-shadow: 0 20px 50px rgba(0,0,0,0.45), inset 0 0 0 1px rgba(255,255,255,0.04);
+  }
+
+  .board-panel {
+    width: 100%;
+    background: var(--board);
+    border-radius: 10px;
+    padding: 10px;
+    box-shadow: inset 0 2px 10px rgba(0,0,0,0.25);
+  }
+
+  svg { display: block; width: 100%; height: auto; }
+
+  .controls {
+    margin-top: 28px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+  }
+
+  button#regen {
+    background: var(--gold);
+    color: #1c1508;
+    border: none;
+    font-size: 16px;
+    font-weight: 600;
+    padding: 13px 30px;
+    border-radius: 999px;
+    cursor: pointer;
+    transition: transform 0.12s ease, background 0.12s ease;
+    box-shadow: 0 6px 18px rgba(211,168,76,0.25);
+  }
+  button#regen:hover { background: #e2b95d; transform: translateY(-1px); }
+  button#regen:active { transform: translateY(0px) scale(0.98); }
+
+  .stats {
+    font-size: 12.5px;
+    color: #8fa091;
+    letter-spacing: 0.2px;
+  }
+
+  .legend {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 14px 22px;
+    margin-top: 26px;
+    max-width: 520px;
+  }
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 13px;
+    color: #d7d0bd;
+  }
+  .swatch {
+    width: 14px;
+    height: 14px;
+    border-radius: 3px;
+    display: inline-block;
+    box-shadow: inset 0 0 0 1px rgba(0,0,0,0.2);
+  }
+</style>
+</head>
+<body>
+
+  <h1>Catan Board Generator</h1>
+  <p class="subtitle">Every click builds a new random, balanced board — no matching numbers on adjacent tiles, no two 6s/8s next to each other, and no resource sitting right next to its own matching port.</p>
+
+  <div class="frame">
+    <div class="board-panel">
+      <svg id="board-svg" viewBox="0 0 1400 1320" xmlns="http://www.w3.org/2000/svg"></svg>
+    </div>
+  </div>
+
+  <div class="controls">
+    <button id="regen">Generate new board</button>
+    <div class="stats" id="stats"></div>
+  </div>
+
+  <div class="legend">
+    <div class="legend-item"><span class="swatch" style="background:var(--sheep)"></span>Sheep</div>
+    <div class="legend-item"><span class="swatch" style="background:var(--wood-tile)"></span>Wood</div>
+    <div class="legend-item"><span class="swatch" style="background:var(--wheat)"></span>Wheat</div>
+    <div class="legend-item"><span class="swatch" style="background:var(--brick)"></span>Brick</div>
+    <div class="legend-item"><span class="swatch" style="background:var(--stone)"></span>Ore</div>
+    <div class="legend-item"><span class="swatch" style="background:var(--desert)"></span>Desert</div>
+  </div>
+
+<script>
+(function(){
+
+  // ---------- Generation logic (ported from HALAT-CatanBalancer.py) ----------
+
+  const hexRad = 2 / Math.sqrt(3);
+
+  function pickRandom(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
+  function removeOne(arr, val) { const i = arr.indexOf(val); if (i !== -1) arr.splice(i, 1); }
+
+  function freshDoubleCoord() {
+    return [
+      [-2,2,0,'',0],[0,2,1,'',0],[2,2,2,'',0],
+      [-3,1,3,'',0],[-1,1,4,'',0],[1,1,5,'',0],[3,1,6,'',0],
+      [-4,0,7,'',0],[-2,0,8,'',0],[0,0,9,'',0],[2,0,10,'',0],[4,0,11,'',0],
+      [-3,-1,12,'',0],[-1,-1,13,'',0],[1,-1,14,'',0],[3,-1,15,'',0],
+      [-2,-2,16,'',0],[0,-2,17,'',0],[2,-2,18,'',0]
+    ];
+  }
+
+  const portCoord = [
+    [-1,3.5*hexRad,0,4*hexRad,0,''],
+    [2,4*hexRad,3,3.5*hexRad,1,''],
+    [4,2*hexRad,4,hexRad,2,''],
+    [4,-hexRad,4,-2*hexRad,3,''],
+    [3,-3.5*hexRad,2,-4*hexRad,4,''],
+    [0,-4*hexRad,-1,-3.5*hexRad,5,''],
+    [-3,-2.5*hexRad,-4,-2*hexRad,6,''],
+    [-5,-0.5*hexRad,-5,0.5*hexRad,7,''],
+    [-4,2*hexRad,-3,2.5*hexRad,8,'']
+  ];
+
+  const portBannedTiles = [
+    [0,0,1,2,4,5],[1,1,2,5,6,20],[2,2,5,6,10,11],[3,10,11,14,15,18],
+    [4,14,15,17,18,20],[5,13,14,16,17,18],[6,7,8,12,13,16],[7,3,7,8,12,20],[8,0,3,4,7,8]
+  ];
+
+  const listOfPortsStart = ['wood','?','wheat','stone','?','sheep','?','?','brick'];
+  const listOfTilesStart = ['sheep','sheep','sheep','sheep','wheat','wheat','wheat','wheat',
+    'wood','wood','wood','wood','stone','stone','stone','brick','brick','brick'];
+  const listOfRollNumbersStart = [2,3,3,4,4,5,5,6,6,8,8,9,9,10,10,11,11,12];
+
+  function isNeighbor(c, d) {
+    return (d[0]===c[0]+2 && d[1]===c[1]) ||
+           (d[0]===c[0]+1 && d[1]===c[1]+1) ||
+           (d[0]===c[0]-1 && d[1]===c[1]+1) ||
+           (d[0]===c[0]-2 && d[1]===c[1]) ||
+           (d[0]===c[0]-1 && d[1]===c[1]-1) ||
+           (d[0]===c[0]+1 && d[1]===c[1]-1);
+  }
+
+  function generateBoard() {
+    for (const p of portCoord) p[5] = listOfPortsStart[p[4]];
+
+    let doubleCoord, tileFails = 0, success = true;
+    do {
+      success = false;
+      let hasFailed = false;
+      let listOfTiles = listOfTilesStart.slice();
+      doubleCoord = freshDoubleCoord();
+
+      for (const c of doubleCoord) {
+        if (c[0] === 0 && c[1] === 0) { c[3] = 'desert'; continue; }
+        let timeOutCounter = 0, isBannedByPort = true;
+        while (isBannedByPort && timeOutCounter < 100) {
+          let tileNotAllowed = false;
+          c[3] = pickRandom(listOfTiles);
+          for (const p of portCoord) {
+            if (p[5] === c[3]) {
+              for (let i = 0; i < 5; i++) if (portBannedTiles[p[4]][i+1] === c[2]) tileNotAllowed = true;
+              if (!tileNotAllowed) isBannedByPort = false;
+            }
+          }
+          timeOutCounter++;
+        }
+        if (timeOutCounter >= 100) success = true;
+        if (listOfTiles.length !== 1) removeOne(listOfTiles, c[3]);
+      }
+
+      for (const c of doubleCoord) {
+        if (c[3] === 'stone' || c[3] === 'brick') {
+          for (const d of doubleCoord) if (isNeighbor(c, d) && d[3] === c[3]) hasFailed = true;
+        }
+      }
+      for (const c of doubleCoord) {
+        if (['wheat','wood','sheep'].includes(c[3])) {
+          for (const d of doubleCoord) {
+            if (isNeighbor(c, d) && d[3] === c[3]) {
+              for (const e of doubleCoord) if (isNeighbor(d, e) && e[2] !== c[2] && e[3] === d[3]) hasFailed = true;
+            }
+          }
+        }
+      }
+      if (hasFailed) { success = true; tileFails++; }
+    } while (success);
+
+    let numberFails = 0, successfulNumbers = true;
+    while (successfulNumbers) {
+      successfulNumbers = false;
+      let listOfRollNumbers = listOfRollNumbersStart.slice();
+      let hasFailedNumber = false;
+
+      for (const c of doubleCoord) {
+        if (c[0] === 0 && c[1] === 0) continue;
+        c[4] = pickRandom(listOfRollNumbers);
+        if (listOfRollNumbers.length !== 1) removeOne(listOfRollNumbers, c[4]);
+      }
+
+      for (const c of doubleCoord) for (const d of doubleCoord) if (isNeighbor(c, d) && d[4] === c[4]) hasFailedNumber = true;
+      for (const c of doubleCoord) for (const d of doubleCoord) if (d[2] !== c[2] && d[3] === c[3] && d[4] === c[4]) hasFailedNumber = true;
+      for (const c of doubleCoord) if (c[4] === 6 || c[4] === 8) {
+        for (const d of doubleCoord) if (d[2] !== c[2] && d[3] === c[3] && (d[4] === 6 || d[4] === 8)) hasFailedNumber = true;
+      }
+      for (const c of doubleCoord) if (c[4] === 6 || c[4] === 8) {
+        for (const d of doubleCoord) if (isNeighbor(c, d) && (d[4] === 6 || d[4] === 8)) hasFailedNumber = true;
+      }
+      if (hasFailedNumber) { successfulNumbers = true; numberFails++; }
+    }
+
+    return { doubleCoord, portCoord, tileFails, numberFails };
+  }
+
+  // ---------- Rendering ----------
+
+  const SCALE = 124;              // px per raw coordinate unit
+  const CX = 700, CY = 660;       // svg center
+
+  const tileColor = {
+    sheep: 'var(--sheep)', wood: 'var(--wood-tile)', wheat: 'var(--wheat)',
+    brick: 'var(--brick)', stone: 'var(--stone)', desert: 'var(--desert)'
+  };
+  const portColor = {
+    sheep: 'var(--sheep)', wood: 'var(--wood-tile)', wheat: 'var(--wheat)',
+    brick: 'var(--brick)', stone: 'var(--stone)', '?': '#3a2f22'
+  };
+  const portLabel = { sheep: '2:1', wood: '2:1', wheat: '2:1', brick: '2:1', stone: '2:1', '?': '3:1' };
+
+  // doubleCoord uses "row units" for y (multiplied by 1.5*hexRad to get plot space)
+  function toPx(x, y) {
+    return [CX + x * SCALE, CY - y * 1.5 * hexRad * SCALE];
+  }
+
+  // portCoord y-values are already in plot space (pre-multiplied), no extra row scaling
+  function toPxPort(x, y) {
+    return [CX + x * SCALE, CY - y * SCALE];
+  }
+
+  function hexPoints(cx, cy, r) {
+    const pts = [];
+    for (let i = 0; i < 6; i++) {
+      const angle = Math.PI/2 + i * (Math.PI/3);
+      pts.push([cx + r*SCALE*Math.cos(angle), cy - r*SCALE*Math.sin(angle)]);
+    }
+    return pts.map(p => p.join(',')).join(' ');
+  }
+
+  function render(board) {
+    const { doubleCoord, portCoord, tileFails, numberFails } = board;
+    let svg = '';
+
+    // ocean backdrop
+    svg += `<rect x="0" y="0" width="1400" height="1320" fill="var(--ocean)" rx="28"/>`;
+
+    // tiles
+    for (const c of doubleCoord) {
+      const [px, py] = toPx(c[0], c[1]);
+      const fill = tileColor[c[3]] || '#333';
+      svg += `<polygon points="${hexPoints(px, py, hexRad)}" fill="${fill}" stroke="#12100b" stroke-width="3" opacity="0.95"/>`;
+    }
+
+    // ports
+    for (const p of portCoord) {
+      const [x1, y1] = toPxPort(p[0], p[1]);
+      const [x2, y2] = toPxPort(p[2], p[3]);
+      const col = portColor[p[5]];
+      const mx = (x1+x2)/2, my = (y1+y2)/2;
+      svg += `<circle cx="${x1}" cy="${y1}" r="14" fill="none" stroke="${col}" stroke-width="5"/>`;
+      svg += `<circle cx="${x2}" cy="${y2}" r="14" fill="none" stroke="${col}" stroke-width="5"/>`;
+      svg += `<text x="${mx}" y="${my}" font-size="22" font-weight="700" fill="#eee3c9" text-anchor="middle" dominant-baseline="middle" style="paint-order: stroke; stroke: #142218; stroke-width: 6px;">${portLabel[p[5]]}</text>`;
+    }
+
+    // number tokens
+    for (const c of doubleCoord) {
+      if (c[0] === 0 && c[1] === 0) continue;
+      const [px, py] = toPx(c[0], c[1]);
+      const isHot = (c[4] === 6 || c[4] === 8);
+      svg += `<circle cx="${px}" cy="${py}" r="38" fill="#f2e9d2" stroke="#12100b" stroke-width="2"/>`;
+      svg += `<text x="${px}" y="${py}" font-size="34" font-weight="700" fill="${isHot ? '#b23a2c' : '#2c2115'}" text-anchor="middle" dominant-baseline="central" font-family="Georgia, serif">${c[4]}</text>`;
+    }
+
+    document.getElementById('board-svg').innerHTML = svg;
+    document.getElementById('stats').textContent =
+      `Attempts: ${tileFails} (tiles) / ${numberFails} (numbers)`;
+  }
+
+  function go() { render(generateBoard()); }
+
+  document.getElementById('regen').addEventListener('click', go);
+  go();
+
+})();
+</script>
+
+</body>
+</html>
